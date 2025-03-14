@@ -1,5 +1,5 @@
 {
-  "app": "npx ts-node --prefer-ts-exts bin/cdk-rdsproxy-aurora.ts",
+  "app": "npx ts-node --prefer-ts-exts bin/main.ts",
   "watch": {
     "include": [
       "**"
