@@ -63,7 +63,8 @@ export class Aurora extends Construct {
       deletionProtection: false,    // 開発環境では削除保護を無効化（本番環境では true に設定）
       backup: {
         retention: cdk.Duration.days(7), // バックアップ保持期間
-      }
+      },
+      enableDataApi: true, // Data API を有効化
     });
     
     this.clusterArn = this.cluster.clusterArn;
@@ -88,6 +89,11 @@ export class Aurora extends Construct {
     new cdk.CfnOutput(this, 'ProxyEndpoint', {
       value: this.rdsProxy.endpoint,
       description: 'RDS Proxy Endpoint',
+    });
+
+    new cdk.CfnOutput(this, 'ClusterArn', {
+      value: this.clusterArn,
+      description: 'Aurora Cluster ARN for Data API',
     });
   }
 }

@@ -1,6 +1,10 @@
-// lambda/rds-proxy-lambda.ts
 import { SecretsManager } from 'aws-sdk';
 import { Client } from 'pg';
+
+const AWSXRay = require('aws-xray-sdk-core');
+const AWS = AWSXRay.captureAWS(require('aws-sdk'));
+const pg = require('pg');
+const capturedPg = AWSXRay.capturePostgres(pg);
 
 export const handler = async (event: any) => {
   console.log('Lambda function started', { requestId: event.requestContext?.requestId });
@@ -8,8 +12,12 @@ export const handler = async (event: any) => {
   let client;
   
   try {
+    // Secrets Manager からの取得を計測するサブセグメントを作成
+    const segment = AWSXRay.getSegment();
+    const secretSegment = segment.addNewSubsegment('GetDBCredentials');
+    
     // Secrets Manager から DB の認証情報を取得
-    const secretsManager = new SecretsManager();
+    const secretsManager = new AWS.SecretsManager();
     const secretArn = process.env.DB_SECRET_ARN;
 
     if (!secretArn) {
@@ -20,12 +28,18 @@ export const handler = async (event: any) => {
     const secret = JSON.parse(secretValue.SecretString || '{}');
     const host = process.env.RDS_PROXY_ENDPOINT;
     
+    // サブセグメントを閉じる
+    secretSegment.close();
+    
     if (!host) {
       throw new Error("RDS_PROXY_ENDPOINT is not set");
     }
     
+    // DB 接続のサブセグメントを作成
+    const connectSegment = segment.addNewSubsegment('DBConnection');
+    
     // クライアント作成
-    client = new Client({
+    client = new capturedPg.Client({
       host,
       port: 5432,
       user: secret.username,
@@ -40,13 +54,25 @@ export const handler = async (event: any) => {
     await client.connect();
     console.log('Connected successfully');
     
+    // DB 接続サブセグメントを閉じる
+    connectSegment.close();
+    
+    // クエリ実行のサブセグメントを作成
+    const querySegment = segment.addNewSubsegment('QueryExecution');
+    
     // クエリ実行
     console.log('Executing query...');
     const res = await client.query('SELECT NOW() as time, current_user as user, version() as version');
     console.log('Query executed successfully');
     
+    // クエリ実行サブセグメントを閉じる
+    querySegment.close();
+    
+    // レスポンス作成のサブセグメントを作成
+    const responseSegment = segment.addNewSubsegment('PrepareResponse');
+    
     // レスポンス
-    return {
+    const response = {
       statusCode: 200,
       headers: {
         'Content-Type': 'application/json',
@@ -57,9 +83,26 @@ export const handler = async (event: any) => {
         timestamp: new Date().toISOString()
       }),
     };
+    
+    // レスポンス作成サブセグメントを閉じる
+    responseSegment.close();
+    
+    return response;
   } catch (error) {
+    // エラー処理のサブセグメントを作成
+    const segment = AWSXRay.getSegment();
+    const errorSegment = segment.addNewSubsegment('ErrorHandling');
+    
     console.error('Error:', error instanceof Error ? error.message : 'Unknown error', error);
-    return {
+    
+    // X-Ray にエラーを記録（型を明示的に処理）
+    if (error instanceof Error) {
+      errorSegment.addError(error);
+    } else {
+      errorSegment.addError(new Error(String(error)));
+    }
+    
+    const response = {
       statusCode: 500,
       headers: {
         'Content-Type': 'application/json'
@@ -69,15 +112,33 @@ export const handler = async (event: any) => {
         timestamp: new Date().toISOString()
       }),
     };
+    
+    // エラー処理サブセグメントを閉じる
+    errorSegment.close();
+    
+    return response;
   } finally {
-    // 接続のクリーンアップ
     if (client) {
+      // クリーンアップのサブセグメントを作成
+      const segment = AWSXRay.getSegment();
+      const cleanupSegment = segment.addNewSubsegment('Cleanup');
+      
       try {
+        // 接続のクリーンアップ
         await client.end();
         console.log('Database connection closed');
       } catch (err) {
         console.error('Error closing database connection:', err);
+        // エラーの型を明示的に処理
+        if (err instanceof Error) {
+          cleanupSegment.addError(err);
+        } else {
+          cleanupSegment.addError(new Error(String(err)));
+        }
+      } finally {
+        // クリーンアップサブセグメントを閉じる
+        cleanupSegment.close();
       }
     }
   }
-};
+}
