@@ -10,11 +10,17 @@ export class MainStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
     super(scope, id, props);
 
+    // VPC の作成
     const vpc = new Vpc(this, 'MyVpc');
+
+    // Aurora クラスターとRDSプロキシの作成
     const aurora = new Aurora(this, 'MyAurora', vpc.vpc);
+
+    // Lambda関数の作成
     const lambdaConstruct = new Lambda(this, 'MyLambda', vpc.vpc, aurora.rdsProxy.endpoint, aurora.dbSecret);
     
-    new ApiGateway(this, 'MyApiGateway', lambdaConstruct.rdsProxyLambda);
+    // API Gateway の作成
+    const apiGateway = new ApiGateway(this, 'MyApiGateway', lambdaConstruct.rdsProxyLambda);
 
     // Aurora クラスから公開されたセキュリティグループを使用
     const rdsProxySecurityGroup = aurora.proxySg;
