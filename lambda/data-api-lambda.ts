@@ -1,9 +1,10 @@
-// lambda/data-api-lambda.ts
-// requireを使用してX-Ray SDKを読み込み
-const AWSXRay = require('aws-xray-sdk-core');
-const AWS = AWSXRay.captureAWS(require('aws-sdk'));
+import * as AWSXRay from 'aws-xray-sdk-core';
+import * as AWS from 'aws-sdk';
 
-// RDS Data API のレコード型を定義
+const awsXRay = AWSXRay as any; // TypeScriptの型定義の問題を回避
+const aws = awsXRay.captureAWS(AWS);
+
+// RDS Data APIのレコード型を定義
 interface RDSDataRecord {
   [index: number]: {
     stringValue?: string;
@@ -15,21 +16,20 @@ interface RDSDataRecord {
   };
 }
 
-// 結果の行データ型を定義
 interface ResultRow {
-  time?: string;
-  user?: string;
-  version?: string;
-  [key: string]: any;
+  time: string | null;
+  user: string | null;
+  version: string | null;
 }
 
 export const handler = async (event: any) => {
-  console.log('Data API Lambda function started', { requestId: event.requestContext?.requestId });
+  console.log('Data API Lambda started', { requestId: event.requestContext?.requestId });
   
   try {
     // 環境変数の取得
-    const segment = AWSXRay.getSegment();
-    const envSegment = segment.addNewSubsegment('GetEnvironmentVariables');
+    const segment = awsXRay.getSegment();
+    const subSegment = segment.addNewSubsegment('DataAPIExecution');
+    
     const clusterArn = process.env.CLUSTER_ARN;
     const secretArn = process.env.DB_SECRET_ARN;
     const databaseName = process.env.DATABASE_NAME;
@@ -38,17 +38,8 @@ export const handler = async (event: any) => {
       throw new Error("Required environment variables are not set");
     }
     
-    envSegment.close();
-
-    // クエリ実行をサブセグメントで計測
-    const querySegment = segment.addNewSubsegment('DataAPIQuery');
-
-    // RDS Data API クライアントの初期化
-    const rdsData = new AWS.RDSDataService();
-    
-    console.log('Executing query via Data API...');
-    
-    // クエリの実行
+    // RDS Data API クライアントの初期化とクエリ実行
+    const rdsData = new aws.RDSDataService();
     const result = await rdsData.executeStatement({
       resourceArn: clusterArn,
       secretArn: secretArn,
@@ -56,69 +47,43 @@ export const handler = async (event: any) => {
       sql: 'SELECT NOW() as time, current_user as user, version() as version'
     }).promise();
     
-    console.log('Query executed successfully');
-    
-    querySegment.close();
-    
-    // 結果の変換
-    const processSegment = segment.addNewSubsegment('ProcessResults');
-    
+    // 結果の変換 - 型を明示的に指定
     const records = result.records || [];
-    const data = records.map((record: RDSDataRecord): ResultRow => {
-      const row: ResultRow = {};
-      if (record[0]?.stringValue) row.time = record[0].stringValue;
-      if (record[1]?.stringValue) row.user = record[1].stringValue;
-      if (record[2]?.stringValue) row.version = record[2].stringValue;
-      return row;
-    });
+    const data = records.map((record: RDSDataRecord): ResultRow => ({
+      time: record[0]?.stringValue || null,
+      user: record[1]?.stringValue || null,
+      version: record[2]?.stringValue || null
+    }));
     
-    processSegment.close();
+    subSegment.close();
     
-    // レスポンス作成
-    const responseSegment = segment.addNewSubsegment('PrepareResponse');
-    
-    const response = {
+    return {
       statusCode: 200,
       headers: {
         'Content-Type': 'application/json',
         'Cache-Control': 'no-cache'
       },
       body: JSON.stringify({
-        data: data,
+        data,
         timestamp: new Date().toISOString()
       }),
     };
-    
-    responseSegment.close();
-    
-    return response;
   } catch (error) {
     console.error('Error:', error instanceof Error ? error.message : 'Unknown error', error);
     
-    // エラーをX-Rayに記録
-    const segment = AWSXRay.getSegment();
-    const errorSegment = segment.addNewSubsegment('ErrorHandling');
+    // エラー処理を簡潔化
+    const segment = awsXRay.getSegment();
+    const errorSegment = segment.addNewSubsegment('Error');
+    errorSegment.addError(error instanceof Error ? error : new Error(String(error)));
+    errorSegment.close();
     
-    // エラーの型を明示的に処理
-    if (error instanceof Error) {
-      errorSegment.addError(error);
-    } else {
-      errorSegment.addError(new Error(String(error)));
-    }
-    
-    const response = {
+    return {
       statusCode: 500,
-      headers: {
-        'Content-Type': 'application/json'
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         error: error instanceof Error ? error.message : 'An unknown error occurred',
         timestamp: new Date().toISOString()
       }),
     };
-    
-    errorSegment.close();
-    
-    return response;
   }
-}
+};
