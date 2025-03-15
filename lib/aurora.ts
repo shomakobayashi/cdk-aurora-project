@@ -75,7 +75,7 @@ export class Aurora extends Construct {
       proxyTarget: rds.ProxyTarget.fromCluster(this.cluster),
       secrets: [this.dbSecret],
       securityGroups: [this.proxySg],
-      requireTLS: true,           // TLS を必須
+    //   requireTLS: true,           // TLS を必須
       idleClientTimeout: cdk.Duration.seconds(900), // アイドルタイムアウト
       vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_ISOLATED },
       debugLogging: false
