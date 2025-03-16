@@ -12,7 +12,6 @@ export class Lambda extends Construct {
   public readonly dataApiLambda: lambda.NodejsFunction;
   public readonly lambdaSg: ec2.SecurityGroup;
   
-
   constructor(scope: Construct, id: string, vpc: ec2.Vpc, rdsProxyEndpoint: string, dbSecret: secretsmanager.ISecret, clusterArn: string) {
     super(scope, id);
 
@@ -40,30 +39,30 @@ export class Lambda extends Construct {
       bundling: {
         forceDockerBundling: false,
         minify: true,
-        nodeModules: ['pg', 'aws-sdk', 'aws-xray-sdk-core'],
+        nodeModules: ['pg', 'aws-sdk'],
       },
-      tracing: lambdaBase.Tracing.ACTIVE,
+
     });
 
     // Data API を使用する Lambda
     this.dataApiLambda = new lambda.NodejsFunction(this, 'DataApiLambda', {
-        entry: path.resolve(__dirname, '../lambda/data-api-lambda.ts'),
-        handler: 'handler',
-        runtime: lambdaBase.Runtime.NODEJS_20_X,
-        timeout: cdk.Duration.seconds(30),
-        memorySize: 512,
-        environment: {
-          CLUSTER_ARN: clusterArn,
-          DB_SECRET_ARN: dbSecret.secretArn,
-          DATABASE_NAME: 'testdb',
-          NODE_OPTIONS: '--max-old-space-size=400',
-        },
-        bundling: {
-          forceDockerBundling: false,
-          minify: true,
-          nodeModules: ['aws-sdk', 'aws-xray-sdk-core'],
-        },
-        tracing: lambdaBase.Tracing.ACTIVE,
+      entry: path.resolve(__dirname, '../lambda/data-api-lambda.ts'),
+      handler: 'handler',
+      runtime: lambdaBase.Runtime.NODEJS_20_X,
+      timeout: cdk.Duration.seconds(30),
+      memorySize: 512,
+      environment: {
+        CLUSTER_ARN: clusterArn,
+        DB_SECRET_ARN: dbSecret.secretArn,
+        DATABASE_NAME: 'testdb',
+        NODE_OPTIONS: '--max-old-space-size=400',
+      },
+      bundling: {
+        forceDockerBundling: false,
+        minify: true,
+        nodeModules: ['aws-sdk', 'aws-xray-sdk-core'],
+      },
+      tracing: lambdaBase.Tracing.ACTIVE,
     });
 
     // 権限の設定

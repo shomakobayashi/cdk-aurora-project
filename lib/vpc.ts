@@ -26,7 +26,7 @@ export class Vpc extends Construct {
       privateDnsEnabled: true,
     });
 
-    // VPC エンドポイント CloudWatch
+    // VPC エンドポイント CloudWatchログ出力用
     this.vpc.addInterfaceEndpoint('CloudWatchLogsEndpoint', {
       service: ec2.InterfaceVpcEndpointAwsService.CLOUDWATCH_LOGS,
       privateDnsEnabled: true,
